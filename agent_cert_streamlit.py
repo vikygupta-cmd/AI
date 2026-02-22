@@ -2,39 +2,67 @@ import streamlit as st
 import requests
 import uuid
 import json
-from datetime import timedelta
 
-# --- Configuration ---
-# It's recommended to use st.secrets for storing sensitive information like API tokens
+# ==============================
+# Configuration
+# ==============================
+
 API_URL = "https://elastic.snaplogic.com/api/1/rest/slsched/feed/SIE_Health_Dev/SHS_IT_DEI_HC_AI/Vikas/Cert_Agent_Task"
-API_TOKEN = "uApLXaauiDtaYw8IJrad8Wdl9j1TL041"  # or st.secrets["API_TOKEN"]
+API_TOKEN = st.secrets.get("API_TOKEN", "uApLXaauiDtaYw8IJrad8Wdl9j1TL041")
+
+REQUEST_TIMEOUT = 180
 
 
-# --- Streamlit Page Setup ---
+# ==============================
+# Page Setup
+# ==============================
+
 st.set_page_config(
-    page_title="HC Demo Agent",
+    page_title="HC Orchestration Agent",
     page_icon="🤖",
     layout="wide"
 )
 
-# --- Caching the API Call ---
-@st.cache_data(ttl=timedelta(minutes=10), show_spinner=False)
-def get_assistant_response(session_id, messages_tuple):
+
+# ==============================
+# Session Initialization
+# ==============================
+
+def initialize_session():
+    if "session_id" not in st.session_state:
+        st.session_state.session_id = str(uuid.uuid4())
+
+    if "chat_history" not in st.session_state:
+        st.session_state.chat_history = []
+
+    if "last_raw_response" not in st.session_state:
+        st.session_state.last_raw_response = None
+
+
+# ==============================
+# Backend Call (Stateless)
+# ==============================
+
+def call_agent(user_prompt: str):
     """
-    Sends the user's prompt to the backend API and returns the response.
-    This function is cached to avoid repeated API calls with the same input.
+    Stateless API call.
+    Only sends the current user message.
     """
+
     headers = {
         "Authorization": f"Bearer {API_TOKEN}",
         "Content-Type": "application/json"
     }
-    # Convert the tuple back to a list of dictionaries
-    messages = [dict(m) for m in messages_tuple]
 
     payload = [
         {
-            "session_id": session_id,
-            "messages": messages
+            "session_id": st.session_state.session_id,
+            "messages": [
+                {
+                    "sl_role": "USER",
+                    "content": user_prompt
+                }
+            ]
         }
     ]
 
@@ -43,160 +71,108 @@ def get_assistant_response(session_id, messages_tuple):
             API_URL,
             headers=headers,
             data=json.dumps(payload),
-            timeout=180
+            timeout=REQUEST_TIMEOUT
         )
+
         response.raise_for_status()
-        return response.json()
-    except (requests.exceptions.RequestException, json.JSONDecodeError) as e:
-        return {"error": f"Error communicating with agent: {e}"}
+
+        data = response.json()
+        st.session_state.last_raw_response = data
+
+        return data
+
+    except requests.exceptions.RequestException as e:
+        return {"response": f"⚠️ API communication error: {str(e)}"}
 
 
-def extract_assistant_reply(data):
+# ==============================
+# Response Normalization
+# ==============================
+
+def extract_response(data):
     """
-    Normalize different possible API response formats to a single string.
-
-    Handles:
-    - dict with 'response' / 'answer' / 'message' / 'content' / 'error'
-    - list of such dicts
-    - fallback to string conversion
+    Strict schema enforcement.
+    Backend must return:
+    {
+        "response": "some text"
+    }
     """
 
-    def from_dict(d):
-        # Prefer explicit error if present
-        if "error" in d and isinstance(d["error"], str):
-            return f"⚠️ {d['error']}"
-        for key in ("response", "answer", "message", "content"):
-            if key in d and isinstance(d[key], str):
-                return d[key]
-        return None
+    if isinstance(data, dict) and "response" in data:
+        return data["response"]
 
-    if isinstance(data, dict):
-        extracted = from_dict(data)
-        if extracted is not None:
-            return extracted
-        return str(data)
-
-    if isinstance(data, list) and len(data) > 0:
-        for item in data:
-            if isinstance(item, dict):
-                extracted = from_dict(item)
-                if extracted is not None:
-                    return extracted
-        return str(data[0])
-
-    return "I received an unexpected response format from the backend."
+    return "⚠️ Unexpected response format from backend."
 
 
-def initialize_session_state():
-    """Initializes all necessary session state variables."""
-    if "session_id" not in st.session_state:
-        st.session_state.session_id = str(uuid.uuid4())
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
-    if "active_category" not in st.session_state:
-        st.session_state.active_category = "Install Base Insights"
-    if "last_full_data" not in st.session_state:
-        st.session_state.last_full_data = None
-
-
-def add_message(role, content):
-    """
-    Adds a message to the session state chat history.
-    role: 'USER' or 'ASSISTANT'
-    """
-    st.session_state.messages.append(
-        {"sl_role": role, "content": content}
-    )
-
+# ==============================
+# Sidebar
+# ==============================
 
 def display_sidebar():
-    """Displays the sidebar with configuration and session info."""
     with st.sidebar:
         st.title("🔧 Configuration")
-        st.markdown("Manage session and view the raw API data here.")
-        
+
         st.markdown("**Session ID**")
-        st.code(st.session_state.session_id, language="text")
-        
+        st.code(st.session_state.session_id)
+
         if st.button("♻️ New Session"):
             st.session_state.session_id = str(uuid.uuid4())
-            st.session_state.messages = []
-            st.session_state.last_full_data = None
+            st.session_state.chat_history = []
+            st.session_state.last_raw_response = None
             st.rerun()
-        
+
         st.markdown("---")
         st.markdown("### Raw API Response")
-        if st.session_state.last_full_data is not None:
-            st.json(st.session_state.last_full_data)
+
+        if st.session_state.last_raw_response:
+            st.json(st.session_state.last_raw_response)
         else:
-            st.write("No API response yet. Start by asking a question.")
+            st.write("No API response yet.")
 
 
-def set_active_category(category):
-    """Sets the active example category."""
-    st.session_state.active_category = category
+# ==============================
+# Chat UI
+# ==============================
 
+def display_chat():
+    st.title("🤖 HC Orchestration Agent")
+    st.write("Interact with the SnapLogic orchestration agent.")
 
-def handle_prompt_submission(prompt_text):
-    """
-    Handles sending of a prompt (from chat input or example button),
-    calling the backend API, and updating the UI.
-    """
-    if not prompt_text.strip():
-        return
-    
-    # Add user message to the chat history
-    add_message("USER", prompt_text)
-    
-    # Prepare messages for the API call
-    messages_tuple = tuple(
-        {"sl_role": msg["sl_role"], "content": msg["content"]}
-        for msg in st.session_state.messages
-    )
+    # Display chat history (LOCAL only, not sent to backend)
+    for message in st.session_state.chat_history:
+        with st.chat_message(message["role"].lower()):
+            st.markdown(message["content"])
 
-    # Local spinner near the chat / button instead of global "Running …"
-    with st.spinner("Agent is thinking..."):
-        data = get_assistant_response(st.session_state.session_id, messages_tuple)
-    
-    # Store the full response (for raw view in sidebar)
-    st.session_state.last_full_data = data
-    
-    # Extract a "nice" message to show in the main chat
-    assistant_reply = extract_assistant_reply(data)
-    
-    # Add assistant message to the chat history
-    add_message("ASSISTANT", assistant_reply)
+    user_input = st.chat_input("Type your request here...")
 
-
-def display_main_content():
-    """Displays the main layout of the application."""
-    st.title("🤖 HC Demo Agent")
-    st.write("Ask questions and explore example prompts for different use case categories.")
-
-def display_chat_interface():
-    """Manages the chat display and response processing."""
-    st.subheader("Chat with Agent")
-    
-    chat_container = st.container()
-    with chat_container:
-        # Display existing messages
-        for msg in st.session_state.messages:
-            with st.chat_message(msg["sl_role"].lower()):
-                st.markdown(msg["content"])
-    
-    # Process new user message
-    user_input = st.chat_input("Type your question here...")
     if user_input:
-        handle_prompt_submission(user_input)
+        # Display user message
+        st.session_state.chat_history.append(
+            {"role": "USER", "content": user_input}
+        )
+
+        with st.chat_message("assistant"):
+            with st.spinner("Agent is processing..."):
+                raw_data = call_agent(user_input)
+                final_response = extract_response(raw_data)
+                st.markdown(final_response)
+
+        # Save assistant response locally
+        st.session_state.chat_history.append(
+            {"role": "ASSISTANT", "content": final_response}
+        )
+
         st.rerun()
 
 
-# --- Main App Execution ---
+# ==============================
+# Main
+# ==============================
+
 def main():
-    initialize_session_state()
+    initialize_session()
     display_sidebar()
-    display_main_content()
-    display_chat_interface()  # debug panel removed from main()
+    display_chat()
 
 
 if __name__ == "__main__":
