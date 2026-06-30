@@ -12,7 +12,7 @@ API_TOKEN = "SQ7Pe0a0DLl0stgI1KTH1TGd7GYP2BO1"  # or st.secrets["API_TOKEN"]
 
 # --- Streamlit Page Setup ---
 st.set_page_config(
-    page_title="Snaplogic Runtime Agent",
+    page_title="Medha Integron Agent",
     page_icon="🤖",
     layout="wide"
 )
@@ -170,7 +170,7 @@ def handle_prompt_submission(prompt_text):
 
 def display_main_content():
     """Displays the main layout of the application."""
-    st.title("🤖 Snaplogic Runtime Agent")
+    st.title("🤖 Medha Integron Agent")
     st.write("Ask questions and explore example prompts for different use case categories.")
 
 def display_chat_interface():
