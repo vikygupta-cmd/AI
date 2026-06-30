@@ -6,7 +6,7 @@ from datetime import timedelta
 
 # --- Configuration ---
 # It's recommended to use st.secrets for storing sensitive information like API tokens
-API_URL = "https://elastic.snaplogic.com/api/1/rest/slsched/feed/SIE_Health_Dev/SHS_IT_DEI_HC_AI/Integron_Agent/Snaplogic_runtime_agent_Task"
+API_URL = "https://elastic.snaplogic.com/api/1/rest/slsched/feed/SIE_Health_Dev/SHS_IT_DEI_HC_AI/Integron_Agent/medha_integron_agent_task"
 API_TOKEN = "SQ7Pe0a0DLl0stgI1KTH1TGd7GYP2BO1"  # or st.secrets["API_TOKEN"]
 
 
